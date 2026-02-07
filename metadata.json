@@ -1,0 +1,5 @@
+{
+  "name": "Idea Board Pro",
+  "description": "A collaborative four-quadrant whiteboard for brainstorming and organizing ideas. Features CSV import/export, drag-and-drop sticky notes, and high-quality image export.",
+  "requestFramePermissions": []
+}
