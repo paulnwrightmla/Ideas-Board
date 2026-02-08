@@ -1,7 +1,7 @@
 
 import React, { useState, useCallback, useRef, useEffect } from 'react';
 import { DragDropContext, DropResult } from '@hello-pangea/dnd';
-import { Plus, FileSpreadsheet, Image as ImageIcon, Trash2, Upload, LayoutGrid, Check, Settings2 } from 'lucide-react';
+import { Plus, FileSpreadsheet, Image as ImageIcon, Trash2, Upload, LayoutGrid, Check, Settings2, Save, Download, FolderInput } from 'lucide-react';
 import { toPng } from 'html-to-image';
 import * as XLSX from 'xlsx';
 import Papa from 'papaparse';
@@ -27,6 +27,30 @@ const App: React.FC = () => {
   });
   const [newIdeaText, setNewIdeaText] = useState('');
   const boardRef = useRef<HTMLDivElement>(null);
+
+  // Persistence: Load from LocalStorage
+  useEffect(() => {
+    const savedData = localStorage.getItem('ideas-board-data');
+    const savedIsSetup = localStorage.getItem('ideas-board-is-setup');
+
+    if (savedData) {
+      try {
+        setData(JSON.parse(savedData));
+      } catch (e) {
+        console.error("Failed to parse saved board data", e);
+      }
+    }
+
+    if (savedIsSetup) {
+      setIsSetup(savedIsSetup === 'true');
+    }
+  }, []);
+
+  // Persistence: Save to LocalStorage
+  useEffect(() => {
+    localStorage.setItem('ideas-board-data', JSON.stringify(data));
+    localStorage.setItem('ideas-board-is-setup', isSetup.toString());
+  }, [data, isSetup]);
 
   const startBoard = () => {
     const newColumns: { [key: string]: Column } = {
@@ -60,12 +84,12 @@ const App: React.FC = () => {
 
   const addIdea = useCallback((content: string) => {
     if (!content.trim()) return;
-    
+
     const id = `idea-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
     const color = STICKY_COLORS[Math.floor(Math.random() * STICKY_COLORS.length)];
-    
+
     const newIdea: Idea = { id, content, color };
-    
+
     setData(prev => ({
       ...prev,
       ideas: { ...prev.ideas, [id]: newIdea },
@@ -83,7 +107,7 @@ const App: React.FC = () => {
   const addColumn = () => {
     const id = `col-${Date.now()}`;
     const bgColor = COLUMN_BG_COLORS[data.columnOrder.length % COLUMN_BG_COLORS.length] + '/50';
-    
+
     const newColumn: Column = {
       id,
       title: '',
@@ -112,15 +136,15 @@ const App: React.FC = () => {
     setData(prev => {
       const newColumnOrder = prev.columnOrder.filter(id => id !== columnId);
       const newColumns = { ...prev.columns };
-      
+
       const unassignedIdeaIds = [...prev.columns['unassigned'].ideaIds, ...column.ideaIds];
       newColumns['unassigned'] = {
         ...newColumns['unassigned'],
         ideaIds: unassignedIdeaIds
       };
-      
+
       delete newColumns[columnId];
-      
+
       return {
         ...prev,
         columns: newColumns,
@@ -201,7 +225,7 @@ const App: React.FC = () => {
 
   const exportToPng = async () => {
     if (boardRef.current === null) return;
-    
+
     try {
       const dataUrl = await toPng(boardRef.current, { cacheBust: true, backgroundColor: '#ffffff' });
       const link = document.createElement('a');
@@ -211,6 +235,44 @@ const App: React.FC = () => {
     } catch (err) {
       console.error('oops, something went wrong!', err);
     }
+  };
+
+  const exportToJson = () => {
+    const state = { data, isSetup };
+    const blob = new Blob([JSON.stringify(state, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.download = `IdeaBoard_Backup_${new Date().toISOString().split('T')[0]}.json`;
+    link.href = url;
+    link.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const handleJsonUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      try {
+        const result = e.target?.result as string;
+        const parsed = JSON.parse(result);
+        if (parsed.data && typeof parsed.isSetup === 'boolean') {
+          if (window.confirm("This will overwrite your current board. Continue?")) {
+            setData(parsed.data);
+            setIsSetup(parsed.isSetup);
+          }
+        } else {
+          alert("Invalid board file format.");
+        }
+      } catch (err) {
+        console.error("Failed to parse JSON backup", err);
+        alert("Failed to load board file.");
+      }
+    };
+    reader.readAsText(file);
+    // Reset input value so same file can be uploaded again
+    event.target.value = '';
   };
 
   const resetToSetup = () => {
@@ -240,7 +302,7 @@ const App: React.FC = () => {
           </div>
           <h1 className="text-3xl font-extrabold text-slate-900 text-center mb-2">Idea Board Setup</h1>
           <p className="text-slate-500 text-center mb-8">Configure your workspace to get started.</p>
-          
+
           <div className="space-y-6">
             <div>
               <label className="block text-sm font-semibold text-slate-700 mb-3">Number of Board Subsections</label>
@@ -249,11 +311,10 @@ const App: React.FC = () => {
                   <button
                     key={num}
                     onClick={() => setNumSubsections(num)}
-                    className={`flex-1 py-3 rounded-xl border-2 transition-all font-bold ${
-                      numSubsections === num 
-                        ? 'border-indigo-600 bg-indigo-50 text-indigo-700 shadow-sm' 
+                    className={`flex-1 py-3 rounded-xl border-2 transition-all font-bold ${numSubsections === num
+                        ? 'border-indigo-600 bg-indigo-50 text-indigo-700 shadow-sm'
                         : 'border-slate-100 bg-slate-50 text-slate-400 hover:border-slate-200 hover:bg-slate-100'
-                    }`}
+                      }`}
                   >
                     {num}
                   </button>
@@ -268,8 +329,14 @@ const App: React.FC = () => {
               Start Brainstorming
               <Check className="w-5 h-5 group-hover:scale-110 transition-transform" />
             </button>
+
+            <label className="w-full py-4 border-2 border-indigo-100 hover:border-indigo-200 bg-indigo-50/50 hover:bg-indigo-50 text-indigo-700 rounded-xl font-bold text-lg transition-all flex items-center justify-center gap-2 cursor-pointer group">
+              <FolderInput className="w-5 h-5 group-hover:scale-110 transition-transform" />
+              Load Previous Session
+              <input type="file" accept=".json" className="hidden" onChange={handleJsonUpload} />
+            </label>
           </div>
-          
+
           <div className="mt-8 pt-6 border-t border-slate-100 text-center">
             <p className="text-slate-400 text-xs">You can always add or remove quadrants later.</p>
           </div>
@@ -291,15 +358,15 @@ const App: React.FC = () => {
 
         <div className="flex items-center gap-4">
           <div className="flex bg-gray-100 p-1 rounded-lg">
-            <input 
-              type="text" 
-              placeholder="Quick sticky note..." 
+            <input
+              type="text"
+              placeholder="Quick sticky note..."
               className="bg-transparent border-none focus:ring-0 px-3 py-1 text-sm w-48 lg:w-64"
               value={newIdeaText}
               onChange={(e) => setNewIdeaText(e.target.value)}
               onKeyDown={(e) => e.key === 'Enter' && addIdea(newIdeaText)}
             />
-            <button 
+            <button
               onClick={() => addIdea(newIdeaText)}
               className="bg-indigo-600 text-white px-3 py-1 rounded-md text-sm font-medium hover:bg-indigo-700 transition-colors flex items-center gap-1"
             >
@@ -310,7 +377,7 @@ const App: React.FC = () => {
           <div className="h-6 w-px bg-gray-300 mx-1" />
 
           <div className="flex items-center gap-2">
-            <button 
+            <button
               onClick={addColumn}
               className="flex items-center gap-2 px-3 py-2 bg-indigo-50 border border-indigo-100 rounded-lg text-sm font-medium text-indigo-700 hover:bg-indigo-100 shadow-sm transition-all"
               title="Add Quadrant"
@@ -324,8 +391,8 @@ const App: React.FC = () => {
               <span className="hidden lg:inline">Import</span>
               <input type="file" accept=".csv" className="hidden" onChange={handleCsvUpload} />
             </label>
-            
-            <button 
+
+            <button
               onClick={exportToPng}
               className="flex items-center gap-2 px-3 py-2 bg-white border border-gray-200 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50 shadow-sm transition-all"
             >
@@ -333,7 +400,7 @@ const App: React.FC = () => {
               <span className="hidden lg:inline">PNG</span>
             </button>
 
-            <button 
+            <button
               onClick={exportToExcel}
               className="flex items-center gap-2 px-3 py-2 bg-white border border-gray-200 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50 shadow-sm transition-all"
             >
@@ -341,7 +408,18 @@ const App: React.FC = () => {
               <span className="hidden lg:inline">Excel</span>
             </button>
 
-            <button 
+            <div className="h-6 w-px bg-gray-300 mx-1" />
+
+            <button
+              onClick={exportToJson}
+              className="flex items-center gap-2 px-3 py-2 bg-white border border-gray-200 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50 shadow-sm transition-all"
+              title="Save Backup (JSON)"
+            >
+              <Save className="w-4 h-4 text-indigo-600" />
+              <span className="hidden lg:inline">Save JSON</span>
+            </button>
+
+            <button
               onClick={resetToSetup}
               className="p-2 text-gray-400 hover:text-indigo-600 transition-colors"
               title="Setup Board"
@@ -357,13 +435,13 @@ const App: React.FC = () => {
         <main className="flex flex-1 overflow-hidden bg-gray-50">
           {/* Sidebar */}
           <Sidebar column={data.columns['unassigned']} ideas={data.ideas} />
-          
+
           {/* Board */}
           <div className="flex-1 p-6 overflow-hidden">
             <div ref={boardRef} className="h-full bg-white rounded-xl shadow-lg border border-gray-100 overflow-hidden flex flex-col">
-              <Board 
-                columns={data.columnOrder.map(id => data.columns[id])} 
-                ideas={data.ideas} 
+              <Board
+                columns={data.columnOrder.map(id => data.columns[id])}
+                ideas={data.ideas}
                 onUpdateTitle={updateColumnTitle}
                 onRemoveColumn={removeColumn}
               />
